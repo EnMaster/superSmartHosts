@@ -1,0 +1,151 @@
+// Ready-made starting points. Each template creates a Host block (or applies
+// options to an existing one) so common setups take seconds instead of doc-reading.
+
+export const TEMPLATES = [
+  {
+    id: "socks-proxy",
+    name: "Dynamic SOCKS proxy",
+    desc: "Turn a remote host into a local SOCKS5 proxy on port 1080. Handy for browsing through a server.",
+    patterns: "socks-proxy",
+    tags: ["forwarding"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "DynamicForward", value: "1080" },
+      { key: "ServerAliveInterval", value: "30" },
+      { key: "ServerAliveCountMax", value: "3" },
+    ],
+  },
+  {
+    id: "local-tunnel",
+    name: "Local tunnel",
+    desc: "Forward a local port to a service reachable from the server, like a web app or database.",
+    patterns: "my-tunnel",
+    tags: ["forwarding"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "LocalForward", value: "8080 localhost:80" },
+      { key: "ExitOnForwardFailure", value: "yes" },
+    ],
+  },
+  {
+    id: "db-tunnel",
+    name: "Database tunnel",
+    desc: "Reach a database that only listens on the remote host, on your local port 5432.",
+    patterns: "db-tunnel",
+    tags: ["forwarding"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "LocalForward", value: "5432 localhost:5432" },
+      { key: "ExitOnForwardFailure", value: "yes" },
+      { key: "ServerAliveInterval", value: "30" },
+    ],
+  },
+  {
+    id: "reverse-tunnel",
+    name: "Reverse tunnel",
+    desc: "Expose a local port on the server, so something remote can reach your machine.",
+    patterns: "reverse-tunnel",
+    tags: ["forwarding"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "RemoteForward", value: "9090 localhost:3000" },
+      { key: "ExitOnForwardFailure", value: "yes" },
+      { key: "ServerAliveInterval", value: "30" },
+    ],
+  },
+  {
+    id: "jump-host",
+    name: "Through a bastion",
+    desc: "Connect via a jump host, with a reusable master connection so repeat logins are instant.",
+    patterns: "behind-bastion",
+    tags: ["proxy", "multiplex"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "ProxyJump", value: "bastion" },
+      { key: "ControlMaster", value: "auto" },
+      { key: "ControlPath", value: "~/.ssh/cm-%r@%h:%p" },
+      { key: "ControlPersist", value: "10m" },
+      { key: "ServerAliveInterval", value: "60" },
+    ],
+  },
+  {
+    id: "resilient",
+    name: "Resilient session",
+    desc: "Keep the connection from dropping and reuse it across terminals.",
+    patterns: "keepalive",
+    tags: ["keepalive", "multiplex"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "ServerAliveInterval", value: "30" },
+      { key: "ServerAliveCountMax", value: "3" },
+      { key: "TCPKeepAlive", value: "yes" },
+      { key: "ControlMaster", value: "auto" },
+      { key: "ControlPersist", value: "10m" },
+    ],
+  },
+  {
+    id: "cloud-vm",
+    name: "Cloud VM",
+    desc: "A typical Linux VM: key-based login, first-use host key accepted, keepalive on.",
+    patterns: "cloud-vm",
+    tags: ["auth"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "ubuntu" },
+      { key: "IdentityFile", value: "~/.ssh/id_ed25519" },
+      { key: "IdentitiesOnly", value: "yes" },
+      { key: "StrictHostKeyChecking", value: "accept-new" },
+      { key: "ServerAliveInterval", value: "30" },
+    ],
+  },
+  {
+    id: "proxycommand",
+    name: "ProxyCommand",
+    desc: "Route through a proxy with nc/ncat when ProxyJump isn't available.",
+    patterns: "via-proxy",
+    tags: ["proxy"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "ProxyCommand", value: "ssh -W %h:%p bastion" },
+      { key: "ServerAliveInterval", value: "30" },
+    ],
+  },
+  {
+    id: "forward-agent",
+    name: "Agent forwarding",
+    desc: "Use your local keys for git and other services on the remote host.",
+    patterns: "agent-host",
+    tags: ["auth"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "ForwardAgent", value: "yes" },
+      { key: "AddKeysToAgent", value: "yes" },
+      { key: "IdentitiesOnly", value: "yes" },
+    ],
+  },
+  {
+    id: "x11",
+    name: "X11 forwarding",
+    desc: "Run graphical apps on the remote host and see them locally.",
+    patterns: "x11-host",
+    tags: ["security"],
+    directives: [
+      { key: "HostName", value: "" },
+      { key: "User", value: "" },
+      { key: "ForwardX11", value: "yes" },
+      { key: "ForwardX11Trusted", value: "yes" },
+    ],
+  },
+];
+
+export function templateById(id) {
+  return TEMPLATES.find((t) => t.id === id) || null;
+}
