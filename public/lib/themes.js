@@ -11,11 +11,15 @@ export const THEMES = [
   { id: "grimdark", label: "Grimdark" },
   { id: "mist", label: "Mist" },
   { id: "slate", label: "Slate" },
+  { id: "material", label: "Material" },
+  { id: "2000s", label: "2000s" },
+  { id: "kawaii", label: "Kawaii" },
+  { id: "plain", label: "Plain" },
 ];
 
 export const DEFAULT_THEME = "green";
 
-export const MODERN_THEMES = ["mist", "slate"];
+export const MODERN_THEMES = ["mist", "slate", "material", "2000s", "kawaii", "plain"];
 
 export function isModern(id) {
   return MODERN_THEMES.includes(id);

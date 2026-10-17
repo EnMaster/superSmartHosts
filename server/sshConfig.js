@@ -18,6 +18,10 @@ function nextId() {
 }
 
 export function parse(text) {
+  // Restart the counter so a given file always yields the same block ids
+  // (b1, b2, …). The ids are used as UI keys and to jump from search results
+  // to a host, which requires them to be stable across separate parses.
+  uid = 0;
   const blocks = [];
   let current = { id: nextId(), type: "global", header: "", patterns: "", items: [] };
   blocks.push(current);

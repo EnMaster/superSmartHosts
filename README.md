@@ -9,8 +9,9 @@ anywhere.
 
 ## What it does
 
-- **Browse and edit** every `*.conf` file in `~/.ssh/config.d` (create, rename by
-  file, delete). Files can hold as many `Host` blocks as you like.
+- **Browse and edit** every file in `~/.ssh/config.d` (any name or extension,
+  just like `Include ~/.ssh/config.d/*`) — create, rename by file, delete. Files
+  can hold as many `Host` blocks as you like.
 - **Understands ssh**: comments and blank lines are preserved on round-trip, and
   the editor knows the common options with inline help.
 - **Guided compilation**: pick options from a catalog grouped by purpose
@@ -35,8 +36,89 @@ anywhere.
 - **Everyday conveniences**: per-host colour badge, copy `ssh`/`scp` commands,
   duplicate a host, a warning when a tunnel is malformed or `HostName` is missing,
   and <kbd>Cmd/Ctrl</kbd>+<kbd>S</kbd> to save.
-- **Phosphor look**: the whole thing is dressed as a green P1-phosphor CRT
-  terminal — scanlines, vignette, a bitmap display face and a warmed-up tube.
+- **Back up your config**: snapshot all files at once, or a single file from its
+  toolbar. Backups are timestamped folders you can restore from the **Backups**
+  panel.
+- **Rename a file**: hover a file in the sidebar and click the pencil to rename it
+  in place (<kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel). Any environment
+  tags and the open editor follow the new name.
+- **Global search**: the sidebar box searches *everything* — file names, aliases,
+  `HostName`/IPs, users, ports and any other directive value. Results are grouped
+  by file with the matched text highlighted; click a hit to open the file and
+  jump straight to that host.
+- **Environment colours**: hosts and files whose names look like production or
+  test are colour-coded from the current theme — **production uses the theme's
+  primary colour, test/staging the secondary** — on the host badge and the file
+  dot. Everything else stays neutral.
+- **Many looks**: switch themes from the sidebar footer — from green-, amber- and
+  blue-phosphor CRTs to light **Material**, **2000s** (Windows XP) and pastel
+  **Kawaii**. See [Themes](#themes) for the full list.
+
+## Finding things
+
+The sidebar search matches across every file, not just the names:
+
+- Type an IP (`10.0.0.`), a user, a port, an alias or part of any directive value
+  and every matching host appears, grouped by file, with the match highlighted.
+- Clicking a result opens the file and briefly flashes the host block, so you
+  land exactly where the value lives.
+
+## Environment colour coding
+
+Hosts and files are colour-tagged from the active theme — **production** uses the
+theme's **primary** colour, **test / staging** the **secondary** — shown on the
+host badge and the file dot in the sidebar.
+
+**You decide the environment, not the file name.** Click a host badge or a file
+dot to open a small menu:
+
+- **Automatic** (default) — guess from well-known words (`prod`, `production`,
+  `prd`, `live` → production; `staging`, `stage`, `test`, `qa`, `dev`, `sandbox`,
+  `uat`, `preprod`, `preview`, `demo`, … → test). `prod` wins over `test`.
+- **Production** / **Test / staging** — force that colour.
+- **None** — force neutral, so an auto-guessed name no longer counts.
+
+A host override wins over a file override, which wins over the automatic guess.
+The choices are saved in `~/.super-smart-hosts/environments.json` (override the
+location with `SMH_ENV_DIR`) — your `.conf` files are never modified.
+
+## Themes
+
+Pick a theme from the **sidebar footer**. The choice is remembered in
+`localStorage` and applies instantly — no reload. There are 16 presets across
+two families: phosphor **CRTs** (scanlines, vignette, glow, a bitmap display
+face, a blinking cursor and a tube warm-up) and flat **modern** themes (no CRT
+effects, sans-serif, rounded).
+
+**CRT phosphor**
+
+| Theme | Look |
+| --- | --- |
+| **Phosphor** (default) | P1 green monochrome terminal — the classic look. |
+| **Amber** | Warm amber monochrome monitor. |
+| **Blue** | Cool blue phosphor. |
+| **Sunburn** | Hot orange / red. |
+| **Lilac** | Soft lavender (Catppuccin-ish). |
+| **Violet** | Deep violet (Dracula-ish). |
+| **Neon** | High-contrast yellow / cyan / pink arcade glow. |
+| **Frost** | Pale icy blue. |
+| **Graphite** | Neutral grayscale terminal. |
+| **Grimdark** | Parchment gold on near-black. |
+
+**Modern**
+
+| Theme | Look |
+| --- | --- |
+| **Mist** | Light and clean, blue primary. |
+| **Slate** | Dark navy with an indigo primary. |
+| **Material** | Light, purple primary, soft elevation shadows. |
+| **2000s** | Windows XP "Luna" — grey faces, blue chrome, green buttons, Tahoma. |
+| **Kawaii** | Pastel pink & lavender, pill-shaped buttons, a `♡` by the logo. |
+| **Plain** | Flat black & white, square, every effect off — the cheapest render. |
+
+Because every theme only re-points the design tokens, colours, the environment
+coding, search highlights and every component follow the active palette
+automatically.
 
 ## Requirements
 
@@ -63,15 +145,16 @@ node server/cli.js
 
 ## Make ssh read these files
 
-Super Smart Hosts writes to `~/.ssh/config.d/*.conf`, but ssh only reads them if your
-main config includes them. If the sidebar shows a warning, add this line to
-`~/.ssh/config`:
+Super Smart Hosts manages every file in `~/.ssh/config.d` (any name or extension),
+but ssh only reads them if your main config includes them. If the sidebar shows a
+warning, add this line to `~/.ssh/config`:
 
 ```sshconfig
-Include ~/.ssh/config.d/*.conf
+Include ~/.ssh/config.d/*
 ```
 
-Super Smart Hosts checks this for you and warns when it is missing.
+The `*` matches `.conf`, `.config` and files with no extension alike. Super Smart
+Hosts checks this for you and warns when it is missing.
 
 ## Configuration
 
@@ -81,13 +164,15 @@ All optional, via environment variables (see [`.env.example`](.env.example)):
 | ------------------------- | -------------------- | ---------------------------------------- |
 | `PORT`                    | `4317`               | HTTP port                                |
 | `HOST`                    | `127.0.0.1`          | Bind address (keep it on loopback)       |
-| `SMH_DIR`                 | `~/.ssh/config.d`    | Directory of `.conf` files               |
+| `SMH_DIR`                 | `~/.ssh/config.d`    | Directory of config files                |
 | `SMH_MAIN`                | `~/.ssh/config`      | Main config used for the include check   |
 | `SMH_TERMINAL`            | `auto`               | `auto`, `iterm`, `terminal`, `system`    |
 | `SMH_NO_OPEN`             | unset                | Do not open a browser on start (CLI)     |
 | `SMH_HOSTS`               | `/etc/hosts`         | Path of the system hosts file to edit    |
 | `SMH_HOSTS_PRIVILEGED`    | auto                 | Force privileged host writes: `1`/`0`    |
 | `SMH_BACKUP_DIR`          | `~/.super-smart-hosts/backups` | Where hosts-file backups are stored |
+| `SMH_CONFIG_BACKUP_DIR`   | `~/.super-smart-hosts/config-backups` | Where config-file backups are stored |
+| `SMH_ENV_DIR`             | `~/.super-smart-hosts` | Where manual environment tags are stored |
 
 Load them from a file with `node --env-file=.env server/index.js` (Node ≥ 20.6).
 
@@ -104,6 +189,17 @@ The sidebar's **System hosts** button opens a raw editor for `/etc/hosts`.
   is backed up again first).
 - Set `SMH_HOSTS` to point at another file (useful for testing) — writes to a
   non-`/etc/hosts` path are done directly, without a password.
+
+## Backing up your config
+
+Every config file can be snapshotted to the config backup directory, each
+snapshot its own timestamped folder.
+
+- **All files**: the archive button in the sidebar's file header, or **Back up
+  all files** in the **Backups** panel.
+- **One file**: the **Back up** button in the toolbar of the open file.
+- The **Backups** panel (sidebar) lists snapshots with their files, size and age;
+  **Restore** copies them back over the live files.
 
 ## How launching works
 
@@ -140,12 +236,15 @@ server/
   options.js     catalog of ssh options that powers the UI
   sshCommand.js  builds the ssh invocation (incl. temp override config)
   launcher.js    opens the native terminal
+  hostsFile.js   reads/writes the system hosts file (+ backups)
+  configBackup.js snapshots config files to a backup folder
+  environments.js stores manual production/test tags per file and host
   cli.js         bin entry
 public/
   index.html     import map + fonts
   app.js         application shell and state
   styles.css     design system
-  lib/           api client, formatting helpers
+  lib/           api client, formatting, search and environment helpers
   components/    sidebar, host cards, option editor, run sheet
-test/            parser and launcher tests
+test/            parser, launcher, search and environment tests
 ```

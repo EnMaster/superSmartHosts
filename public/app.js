@@ -9,8 +9,10 @@ import { LaunchSheet } from "./components/LaunchSheet.js";
 import { TemplateSheet } from "./components/TemplateSheet.js";
 import { InspectSheet } from "./components/InspectSheet.js";
 import { HostsFileSheet } from "./components/HostsFileSheet.js";
+import { BackupsSheet } from "./components/BackupsSheet.js";
+import { EnvMenu } from "./components/EnvMenu.js";
 import { Toasts } from "./components/Toasts.js";
-import { IconPlus, IconSave, IconCode, IconRoute, IconClose, IconTemplate } from "./components/icons.js";
+import { IconPlus, IconSave, IconCode, IconRoute, IconClose, IconTemplate, IconArchive } from "./components/icons.js";
 
 function directiveItems(directives) {
   return directives.map((d) => ({ kind: "directive", key: d.key, value: d.value }));
@@ -44,7 +46,7 @@ function newHostBlock(patterns = "new-host") {
 
 function NewFileDialog({ configDir, onClose, onCreate }) {
   const [name, setName] = useState("");
-  const valid = /^[A-Za-z0-9][A-Za-z0-9._-]*\.conf$/.test(name.trim());
+  const valid = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name.trim());
   const submit = (e) => {
     e.preventDefault();
     if (valid) onCreate(name.trim());
@@ -71,7 +73,8 @@ function NewFileDialog({ configDir, onClose, onCreate }) {
             onInput=${(e) => setName(e.currentTarget.value)}
           />
           <p class="muted" style="font-size:12px;margin:8px 0 0">
-            Letters, digits, dot, dash and underscore. Must end with .conf
+            Letters, digits, dot, dash and underscore. Any extension or none — ssh reads every name matching
+            <code>config.d/*</code>.
           </p>
         </div>
         <div class="sheet__foot">
@@ -106,6 +109,10 @@ function App() {
   const [tpl, setTpl] = useState(null);
   const [inspect, setInspect] = useState(null);
   const [hostsOpen, setHostsOpen] = useState(false);
+  const [backupsOpen, setBackupsOpen] = useState(false);
+  const [focusHost, setFocusHost] = useState(null);
+  const [envMenu, setEnvMenu] = useState(null);
+  const [renamingName, setRenamingName] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [theme, setTheme] = useState(() => {
@@ -142,7 +149,7 @@ function App() {
   }, []);
 
   const selectFile = useCallback(
-    async (name) => {
+    async (name, hostId = null) => {
       try {
         const res = await api.readFile(name);
         setSelectedName(name);
@@ -151,6 +158,7 @@ function App() {
         setDirty(false);
         setRawMode(false);
         setLaunch(null);
+        setFocusHost(hostId);
       } catch (err) {
         toast({ kind: "err", title: "Could not open file", msg: err.message });
       }
@@ -263,6 +271,64 @@ function App() {
     }
   };
 
+  const backupAll = async () => {
+    try {
+      const res = await api.backupAll();
+      toast({ kind: "ok", title: "Backed up all files", msg: `${res.files.length} file${res.files.length === 1 ? "" : "s"}` });
+    } catch (err) {
+      toast({ kind: "err", title: "Backup failed", msg: err.message });
+    }
+  };
+
+  const backupCurrent = async () => {
+    if (!selectedName) return;
+    try {
+      const res = await api.backupFile(selectedName);
+      toast({ kind: "ok", title: "File backed up", msg: res.files[0] });
+    } catch (err) {
+      toast({ kind: "err", title: "Backup failed", msg: err.message });
+    }
+  };
+
+  const openEnvMenu = useCallback((spec) => {
+    const r = spec.el.getBoundingClientRect();
+    const width = 216;
+    const height = 210;
+    const x = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    const y = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - height - 8));
+    setEnvMenu({ scope: spec.scope, name: spec.name, hostKey: spec.hostKey, current: spec.current, autoEnv: spec.autoEnv, x, y });
+  }, []);
+
+  const pickEnv = async (value) => {
+    const spec = envMenu;
+    setEnvMenu(null);
+    if (!spec) return;
+    try {
+      if (spec.scope === "file") await api.setFileEnvironment(spec.name, value);
+      else await api.setHostEnvironment(spec.name, spec.hostKey, value);
+      await refreshFiles();
+      const label = value === "auto" ? "automatic" : value === "prod" ? "production" : value === "staging" ? "test / staging" : "none";
+      toast({ kind: "ok", title: `${spec.scope === "file" ? "File" : "Host"} environment: ${label}`, msg: spec.scope === "host" ? spec.hostKey : spec.name });
+    } catch (err) {
+      toast({ kind: "err", title: "Could not set environment", msg: err.message });
+    }
+  };
+
+  const renameFileTo = async (from, to) => {
+    setRenamingName(null);
+    const clean = String(to || "").trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(clean) || clean === from) return;
+    try {
+      await api.renameFile(from, clean);
+      await refreshFiles();
+      await refreshHosts();
+      if (selectedName === from) setSelectedName(clean);
+      toast({ kind: "ok", title: "Renamed", msg: `${from} → ${clean}` });
+    } catch (err) {
+      toast({ kind: "err", title: "Could not rename", msg: err.message });
+    }
+  };
+
   const deleteFile = async (name) => {
     if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
     const wasSelected = name === selectedName;
@@ -315,6 +381,8 @@ function App() {
 
   const globalBlock = useMemo(() => model?.blocks.find((b) => b.type === "global"), [model]);
   const hostBlocks = useMemo(() => (model?.blocks || []).filter((b) => b.type !== "global"), [model]);
+  const fileIndex = useMemo(() => files.find((f) => f.name === selectedName) || null, [files, selectedName]);
+  const fileEnvOverride = fileIndex?.envOverride || "auto";
 
   if (loadError) {
     return html`<div class="empty">
@@ -332,15 +400,22 @@ function App() {
       files=${files}
       selectedName=${selectedName}
       dirtyName=${dirty ? selectedName : null}
+      renamingName=${renamingName}
       search=${search}
       onSearch=${setSearch}
-      onSelect=${(name) => {
-        if (dirty && !confirm("Discard unsaved changes?")) return;
-        selectFile(name);
+      onSelect=${(name, hostId) => {
+        if (name !== selectedName && dirty && !confirm("Discard unsaved changes?")) return;
+        selectFile(name, hostId ?? null);
       }}
       onCreate=${() => setNewFileOpen(true)}
       onDelete=${deleteFile}
+      onStartRename=${(name) => setRenamingName(name)}
+      onRename=${renameFileTo}
+      onCancelRename=${() => setRenamingName(null)}
       onOpenHosts=${() => setHostsOpen(true)}
+      onOpenBackups=${() => setBackupsOpen(true)}
+      onBackupAll=${backupAll}
+      onOpenEnvMenu=${openEnvMenu}
       theme=${theme}
       onTheme=${setTheme}
     />
@@ -358,6 +433,9 @@ function App() {
             <button class="btn btn--ghost" onClick=${toggleRaw} title="Edit the raw text">
               <${IconCode} /> ${rawMode ? "Form view" : "Raw"}
             </button>
+            <button class="btn btn--ghost" onClick=${backupCurrent} title="Back up this file">
+              <${IconArchive} /> Back up
+            </button>
             <button class="btn btn--primary" disabled=${saving || !dirty} onClick=${save}>
               <${IconSave} /> ${saving ? "Saving…" : "Save"}
             </button>
@@ -373,7 +451,7 @@ function App() {
                 <p>
                   ${files.length
                     ? "Select a file from the sidebar, or create a new one."
-                    : "Create your first .conf file in " + (config?.configDir || "~/.ssh/config.d") + "."}
+                    : "Create your first config file in " + (config?.configDir || "~/.ssh/config.d") + "."}
                 </p>
                 <button class="btn btn--primary" onClick=${() => setNewFileOpen(true)}><${IconPlus} /> New config file</button>
               </div>
@@ -409,8 +487,9 @@ function App() {
                         </section>`
                       : null}
 
-                    ${hostBlocks.map((block) =>
-                      html`<${HostCard}
+                    ${hostBlocks.map((block) => {
+                      const idxHost = fileIndex?.hosts?.find((h) => h.id === block.id);
+                      return html`<${HostCard}
                         key=${block.id}
                         block=${block}
                         groups=${groups}
@@ -427,8 +506,14 @@ function App() {
                         onApplyTemplate=${() => setTpl({ mode: "apply", blockId: block.id, alias: block.patterns.split(/\s+/)[0] || "host" })}
                         onInspect=${() => setInspect({ alias: block.patterns.split(/\s+/)[0] || "host", directives: block.items.filter((it) => it.kind === "directive").map((it) => ({ key: it.key, value: it.value })) })}
                         onToast=${toast}
-                      />`
-                    )}
+                        fileName=${selectedName}
+                        envOverride=${idxHost?.envOverride || "auto"}
+                        fileEnvOverride=${fileEnvOverride}
+                        onOpenEnvMenu=${openEnvMenu}
+                        focus=${focusHost === block.id}
+                        onFocusHandled=${() => setFocusHost(null)}
+                      />`;
+                    })}
 
                     <div class="content-actions">
                       <button class="add-btn" onClick=${handlers.addHost}>
@@ -484,7 +569,21 @@ function App() {
 
     ${hostsOpen && html`<${HostsFileSheet} onClose=${() => setHostsOpen(false)} onToast=${toast} />`}
 
+    ${backupsOpen &&
+    html`<${BackupsSheet} onClose=${() => setBackupsOpen(false)} onToast=${toast} onChanged=${async () => { await refreshFiles(); await refreshHosts(); }} />`}
+
     <${Toasts} toasts=${toasts} onDismiss=${(id) => setToasts((p) => p.filter((x) => x.id !== id))} />
+
+    ${envMenu &&
+    html`<${EnvMenu}
+      x=${envMenu.x}
+      y=${envMenu.y}
+      current=${envMenu.current}
+      autoEnv=${envMenu.autoEnv}
+      scope=${envMenu.scope}
+      onPick=${pickEnv}
+      onClose=${() => setEnvMenu(null)}
+    />`}
   </div>`;
 }
 

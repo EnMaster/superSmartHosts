@@ -75,7 +75,7 @@ export const OPTIONS = [
   { key: "SetEnv", group: "misc", type: "text", label: "Set environment", help: "Send an environment variable to the server (Name=value).", placeholder: "LANG=en_US.UTF-8" },
   { key: "SendEnv", group: "misc", type: "text", label: "Send environment", help: "Environment variables to send to the server.", placeholder: "LANG LC_*" },
   { key: "LogLevel", group: "misc", type: "enum", label: "Log level", help: "Verbosity of ssh's own log messages.", values: ["QUIET", "FATAL", "ERROR", "INFO", "VERBOSE", "DEBUG", "DEBUG1", "DEBUG2", "DEBUG3"], defaultValue: "INFO" },
-  { key: "Include", group: "misc", type: "path", label: "Include", help: "Include another configuration file.", placeholder: "~/.ssh/config.d/*.conf", suggest: "files" },
+  { key: "Include", group: "misc", type: "path", label: "Include", help: "Include another configuration file.", placeholder: "~/.ssh/config.d/*", suggest: "files" },
 ];
 
 export const OPTIONS_BY_KEY = new Map(OPTIONS.map((o) => [o.key.toLowerCase(), o]));

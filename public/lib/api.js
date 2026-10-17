@@ -18,6 +18,7 @@ export const api = {
   createFile: (name, sample = true) => req("POST", "/api/files", { name, sample }),
   saveFile: (name, payload) => req("PUT", `/api/files/${encodeURIComponent(name)}`, payload),
   deleteFile: (name) => req("DELETE", `/api/files/${encodeURIComponent(name)}`),
+  renameFile: (name, to) => req("POST", `/api/files/${encodeURIComponent(name)}/rename`, { to }),
   hosts: () => req("GET", "/api/hosts"),
   parse: (text) => req("POST", "/api/parse", { text }),
   serialize: (model) => req("POST", "/api/serialize", { model }),
@@ -28,4 +29,10 @@ export const api = {
   saveHostsFile: (text) => req("PUT", "/api/hosts-file", { text }),
   hostsBackups: () => req("GET", "/api/hosts-file/backups"),
   restoreHostsBackup: (name) => req("POST", "/api/hosts-file/restore", { name }),
+  backups: () => req("GET", "/api/backups"),
+  backupAll: () => req("POST", "/api/backups"),
+  backupFile: (name) => req("POST", `/api/files/${encodeURIComponent(name)}/backup`),
+  restoreBackup: (name) => req("POST", "/api/backups/restore", { name }),
+  setFileEnvironment: (name, env) => req("PUT", "/api/environments/file", { name, env }),
+  setHostEnvironment: (name, host, env) => req("PUT", "/api/environments/host", { name, host, env }),
 };

@@ -9,6 +9,9 @@ import { GROUPS, OPTIONS } from "./options.js";
 import { buildLaunch, pruneTempConfigs } from "./sshCommand.js";
 import { launchTerminal, detectTerminal, sshEffectiveConfig } from "./launcher.js";
 import { readHosts, writeHosts, listBackups, restoreBackup, HOSTS_PATH } from "./hostsFile.js";
+import { backupAll, backupOne, listBackups as listConfigBackups, restoreBackup as restoreConfigBackup, CONFIG_BACKUP_DIR } from "./configBackup.js";
+import { classifyEnv, effectiveFileEnv, effectiveHostEnv } from "../public/lib/env.js";
+import { readEnvironments, setFileEnvironment, setHostEnvironment, renameFileEnvironment, ENVIRONMENTS_FILE } from "./environments.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -20,7 +23,7 @@ const MAIN_CONFIG = process.env.SMH_MAIN || path.join(os.homedir(), ".ssh", "con
 const PORT = Number(process.env.PORT || 4317);
 const BIND = process.env.HOST || "127.0.0.1";
 const TERMINAL = process.env.SMH_TERMINAL || "auto";
-const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.conf$/;
+const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 pruneTempConfigs();
 
@@ -55,7 +58,9 @@ async function ensureConfigDir() {
 function resolveFile(name) {
   const clean = String(name || "").trim();
   if (!FILE_RE.test(clean) || clean.includes("..")) {
-    const err = new Error("Invalid file name. Use letters, digits, dot, dash or underscore and end with .conf");
+    const err = new Error(
+      "Invalid file name. Use letters, digits, dot, dash or underscore (e.g. `work.conf`, `base.config` or `base`)."
+    );
     err.status = 400;
     throw err;
   }
@@ -68,15 +73,59 @@ function resolveFile(name) {
   return { name: clean, full };
 }
 
+// Every regular file ssh would pick up through `Include .../config.d/*`
+// (any name, any extension — hidden files excluded, matching glob semantics).
+async function listConfigFiles() {
+  await ensureConfigDir();
+  const entries = await fs.readdir(CONFIG_DIR, { withFileTypes: true });
+  return entries
+    .filter((e) => e.isFile() && FILE_RE.test(e.name))
+    .map((e) => e.name)
+    .sort();
+}
+
+// Compact, searchable summary of the Host blocks in a parsed file.
+function hostIndex(model) {
+  const hosts = [];
+  for (const block of model?.blocks ?? []) {
+    if (block.type !== "host") continue;
+    const dirs = block.items.filter((it) => it.kind === "directive");
+    const get = (key) => {
+      const d = dirs.find((x) => x.key.toLowerCase() === key);
+      return d ? d.value : "";
+    };
+    const patterns = block.patterns || "";
+    const alias = patterns.split(/\s+/).filter(Boolean)[0] || "";
+    const hostname = get("hostname");
+    hosts.push({
+      id: block.id,
+      alias,
+      patterns,
+      hostname,
+      user: get("user"),
+      port: get("port"),
+      env: classifyEnv(alias, hostname, patterns),
+      directives: dirs.map((d) => ({ key: d.key, value: d.value })),
+    });
+  }
+  return hosts;
+}
+
 async function mainConfigIncludesConfigDir() {
   try {
     const text = await fs.readFile(MAIN_CONFIG, "utf8");
-    const lines = text.split(/\r?\n/);
-    return lines.some((line) => {
-      const m = line.match(/^\s*Include\s+(.+)$/i);
+    const home = os.homedir();
+    const bases = [CONFIG_DIR, path.join(home, ".ssh", "config.d")].map((b) => path.resolve(b));
+    const inBase = (p) => bases.some((base) => p === base || p.startsWith(base + path.sep));
+    return text.split(/\r?\n/).some((line) => {
+      const m = line.match(/^\s*Include\s+(.+?)\s*$/i);
       if (!m) return false;
-      const target = m[1];
-      return target.includes("config.d") || path.resolve(target.replace(/^~/, os.homedir())).startsWith(CONFIG_DIR);
+      const token = m[1].replace(/^~(?=\/|$)/, home);
+      // ssh resolves relative Include paths against ~/.ssh (and the config's own dir).
+      const candidates = path.isAbsolute(token)
+        ? [token]
+        : [path.resolve(path.join(home, ".ssh"), token), path.resolve(path.dirname(MAIN_CONFIG), token)];
+      return candidates.some(inBase);
     });
   } catch {
     return false;
@@ -107,6 +156,7 @@ app.get(
       terminal: detectTerminal(TERMINAL),
       platform: process.platform,
       hostsFile: HOSTS_PATH,
+      environmentsFile: ENVIRONMENTS_FILE,
     });
   })
 );
@@ -133,20 +183,41 @@ app.post("/api/serialize", (req, res) => {
 app.get(
   "/api/files",
   asyncHandler(async (_req, res) => {
-    await ensureConfigDir();
-    const names = (await fs.readdir(CONFIG_DIR)).filter((n) => FILE_RE.test(n)).sort();
+    const names = await listConfigFiles();
+    const envs = await readEnvironments();
     const files = [];
     for (const name of names) {
       const full = path.join(CONFIG_DIR, name);
       const stat = await fs.stat(full);
       let aliases = [];
+      let hosts = [];
       let error = null;
+      const fileOverride = envs.files[name];
+      const hostOverrides = envs.hosts[name] || {};
       try {
-        aliases = hostAliases(parse(await fs.readFile(full, "utf8")));
+        const model = parse(await fs.readFile(full, "utf8"));
+        aliases = hostAliases(model);
+        hosts = hostIndex(model);
+        for (const h of hosts) {
+          const override = hostOverrides[h.patterns || h.id];
+          h.envOverride = override || "auto";
+          h.env = effectiveHostEnv(override, fileOverride, h.env);
+        }
       } catch (err) {
         error = err.message;
       }
-      files.push({ name, size: stat.size, mtime: stat.mtimeMs, aliases, hostCount: aliases.length, error });
+      const env = effectiveFileEnv(name, fileOverride, hosts.map((h) => h.env));
+      files.push({
+        name,
+        size: stat.size,
+        mtime: stat.mtimeMs,
+        aliases,
+        hostCount: aliases.length,
+        env,
+        envOverride: fileOverride || "auto",
+        hosts,
+        error,
+      });
     }
     res.json({ configDir: CONFIG_DIR, files });
   })
@@ -211,11 +282,91 @@ app.delete(
   })
 );
 
+app.post(
+  "/api/files/:name/rename",
+  asyncHandler(async (req, res) => {
+    const { name, full } = resolveFile(req.params.name);
+    const { name: to, full: toFull } = resolveFile(req.body?.to);
+    if (to === name) return res.json({ ok: true, from: name, name: to });
+    await ensureConfigDir();
+    try {
+      await fs.access(toFull);
+      const err = new Error(`${to} already exists`);
+      err.status = 409;
+      throw err;
+    } catch (e) {
+      if (e.status) throw e;
+    }
+    await fs.rename(full, toFull);
+    await renameFileEnvironment(name, to);
+    res.json({ ok: true, from: name, name: to });
+  })
+);
+
+// ---- Config backups --------------------------------------------------------
+
+app.get(
+  "/api/backups",
+  asyncHandler(async (_req, res) => {
+    res.json({ backupDir: CONFIG_BACKUP_DIR, backups: await listConfigBackups() });
+  })
+);
+
+app.post(
+  "/api/backups",
+  asyncHandler(async (_req, res) => {
+    const { dir, files } = await backupAll(CONFIG_DIR);
+    res.json({ ok: true, dir, files });
+  })
+);
+
+app.post(
+  "/api/files/:name/backup",
+  asyncHandler(async (req, res) => {
+    const { name } = resolveFile(req.params.name);
+    const { dir, files } = await backupOne(CONFIG_DIR, name);
+    res.json({ ok: true, dir, files });
+  })
+);
+
+app.post(
+  "/api/backups/restore",
+  asyncHandler(async (req, res) => {
+    const { restored } = await restoreConfigBackup(CONFIG_DIR, req.body?.name);
+    res.json({ ok: true, restored });
+  })
+);
+
+// ---- Manual environment tags -----------------------------------------------
+
+app.put(
+  "/api/environments/file",
+  asyncHandler(async (req, res) => {
+    const { name } = resolveFile(req.body?.name);
+    await setFileEnvironment(name, req.body?.env);
+    res.json({ ok: true, name, env: req.body?.env || "auto" });
+  })
+);
+
+app.put(
+  "/api/environments/host",
+  asyncHandler(async (req, res) => {
+    const { name } = resolveFile(req.body?.name);
+    const host = String(req.body?.host || "").trim();
+    if (!host) {
+      const err = new Error("Missing `host`");
+      err.status = 400;
+      throw err;
+    }
+    await setHostEnvironment(name, host, req.body?.env);
+    res.json({ ok: true, name, host, env: req.body?.env || "auto" });
+  })
+);
+
 app.get(
   "/api/hosts",
   asyncHandler(async (_req, res) => {
-    await ensureConfigDir();
-    const names = (await fs.readdir(CONFIG_DIR)).filter((n) => FILE_RE.test(n)).sort();
+    const names = await listConfigFiles();
     const byAlias = new Map();
     for (const name of names) {
       const model = parse(await fs.readFile(path.join(CONFIG_DIR, name), "utf8"));

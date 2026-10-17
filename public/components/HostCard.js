@@ -1,6 +1,7 @@
 import { html, useState, useEffect, useRef } from "preact";
 import { DirectiveEditor } from "./DirectiveRows.js";
 import { targetInfo, isForwardKey, hostTokens, hueFor, lintHost } from "../lib/format.js";
+import { classifyEnv, effectiveHostEnv } from "../lib/env.js";
 import {
   IconChevron,
   IconPlay,
@@ -42,11 +43,32 @@ export function HostCard({
   onApplyTemplate,
   onInspect,
   onToast,
+  fileName,
+  envOverride = "auto",
+  fileEnvOverride = "auto",
+  onOpenEnvMenu,
+  focus = false,
+  onFocusHandled,
 }) {
   const [open, setOpen] = useState(true);
   const [menu, setMenu] = useState(false);
+  const [flash, setFlash] = useState(false);
   const menuRef = useRef(null);
+  const cardRef = useRef(null);
   useOutsideClose(menuRef, () => setMenu(false));
+
+  useEffect(() => {
+    if (!focus) return;
+    setFlash(true);
+    const el = cardRef.current;
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => {
+      setFlash(false);
+      onFocusHandled?.();
+    }, 1800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [focus]);
 
   const directives = block.items
     .map((it, index) => ({ it, index }))
@@ -60,6 +82,12 @@ export function HostCard({
   const primaryAlias = aliases[0] || block.patterns || "new-host";
   const issues = lintHost(rawDirectives);
   const hue = hueFor(primaryAlias);
+  const hostname = (rawDirectives.find((d) => d.key.toLowerCase() === "hostname") || {}).value || "";
+  const autoEnv = classifyEnv(primaryAlias, hostname, block.patterns);
+  const env = effectiveHostEnv(envOverride, fileEnvOverride, autoEnv);
+  const badgeClass = "host__badge" + (env ? ` host__badge--${env}` : " host__badge--neutral");
+  const hostKey = (block.patterns || "").trim() || block.id;
+  const envTitle = env ? `${env === "prod" ? "production" : "test / staging"} — click to change` : "click to set environment";
 
   const copy = async (text, label) => {
     try {
@@ -71,12 +99,17 @@ export function HostCard({
     setMenu(false);
   };
 
-  return html`<section class="host">
+  return html`<section class=${flash ? "host host--focus" : "host"} ref=${cardRef}>
     <div class="host__header">
       <button class="icon-btn" onClick=${() => setOpen((v) => !v)} title=${open ? "Collapse" : "Expand"}>
         <span class=${open ? "chev is-open" : "chev"}><${IconChevron} /></span>
       </button>
-      <div class="host__badge" style=${`--hue:${hue}`}>${(primaryAlias.replace(/^[^A-Za-z0-9]+/, "")[0] || "?").toUpperCase()}</div>
+      <button
+        class=${badgeClass + " host__badge--btn"}
+        style=${`--hue:${hue}`}
+        title=${envTitle}
+        onClick=${(e) => onOpenEnvMenu({ scope: "host", name: fileName, hostKey, current: envOverride || "auto", autoEnv, el: e.currentTarget })}
+      >${(primaryAlias.replace(/^[^A-Za-z0-9]+/, "")[0] || "?").toUpperCase()}</button>
       <div class="host__id">
         <input
           class="host__alias"

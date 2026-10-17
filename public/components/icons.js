@@ -67,3 +67,9 @@ export const IconGlobe = (p) =>
 
 export const IconRestore = (p) =>
   html`<svg ...${base} width=${p.size || 15} height=${p.size || 15}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 4v4h4" /></svg>`;
+
+export const IconArchive = (p) =>
+  html`<svg ...${base} width=${p.size || 15} height=${p.size || 15}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 13h4" /></svg>`;
+
+export const IconPencil = (p) =>
+  html`<svg ...${base} width=${p.size || 15} height=${p.size || 15}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>`;
